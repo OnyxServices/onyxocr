@@ -2,168 +2,175 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OCR Card Pro Max</title>
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Lector de Tarjetas Pro</title>
+    <!-- Usamos la versión 5 de Tesseract -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <style>
-        :root { --accent: #00ff88; }
-        body { font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: white; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 20px; }
+        body { font-family: sans-serif; background: #121212; color: white; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 20px; touch-action: manipulation; }
         
-        /* Contenedor de cámara */
-        #scanner-wrapper { position: relative; width: 100%; max-width: 500px; aspect-ratio: 1.58 / 1; border-radius: 20px; overflow: hidden; border: 2px solid #333; }
+        #container { position: relative; width: 100%; max-width: 400px; aspect-ratio: 1.58 / 1; background: #000; border-radius: 15px; overflow: hidden; border: 2px solid #333; }
         video { width: 100%; height: 100%; object-fit: cover; }
-
-        /* Guía de enfoque dinámica */
+        
+        /* Guía de enfoque */
         #guide {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            width: 85%; height: 25%; border: 2px solid var(--accent);
-            border-radius: 8px; box-shadow: 0 0 0 1000px rgba(0,0,0,0.6);
-            z-index: 10; pointer-events: none;
+            width: 80%; height: 20%; border: 2px solid #00ff88; border-radius: 5px;
+            box-shadow: 0 0 0 1000px rgba(0,0,0,0.5); z-index: 10;
         }
-        #guide::after { content: "ALINEA LOS NÚMEROS AQUÍ"; position: absolute; top: -25px; left: 0; font-size: 10px; color: var(--accent); letter-spacing: 1px; }
 
-        .results { width: 100%; max-width: 500px; margin-top: 25px; }
+        .ui { width: 100%; max-width: 400px; margin-top: 20px; }
         input { 
-            width: 100%; padding: 15px; font-size: 1.5rem; background: #222; border: 1px solid #444; 
-            color: var(--accent); border-radius: 12px; text-align: center; margin-bottom: 15px; letter-spacing: 3px;
+            width: 100%; padding: 15px; font-size: 1.4rem; background: #222; border: 1px solid #444; 
+            color: #00ff88; border-radius: 10px; text-align: center; margin-bottom: 10px; box-sizing: border-box;
         }
         button { 
-            width: 100%; padding: 15px; background: var(--accent); color: #000; font-weight: bold; 
-            border: none; border-radius: 12px; cursor: pointer; transition: 0.3s;
+            width: 100%; padding: 15px; background: #00ff88; color: black; font-weight: bold; 
+            border: none; border-radius: 10px; cursor: pointer; font-size: 1rem;
         }
-        button:active { transform: scale(0.98); }
-        
-        #debug-canvas { width: 100%; max-width: 500px; margin-top: 10px; height: 80px; display: none; /* Cambiar a block para ver qué ve el OCR */ }
-        .status { margin-top: 10px; color: #888; font-size: 0.9rem; }
+        #status { font-size: 0.8rem; color: #888; margin-top: 10px; text-align: center; }
+        canvas { display: none; } /* Canvas oculto para procesar */
     </style>
 </head>
 <body>
 
-    <h2>Escáner de Precisión</h2>
+    <h3>Escanear Tarjeta</h3>
     
-    <div id="scanner-wrapper">
+    <div id="container">
         <video id="video" autoplay playsinline muted></video>
         <div id="guide"></div>
     </div>
 
-    <canvas id="debug-canvas"></canvas>
-
-    <div class="results">
-        <input type="text" id="card-number" placeholder="···· ···· ···· ····" readonly>
-        <button onclick="copyToClipboard()">COPIAR NÚMERO</button>
-        <div class="status" id="status">Iniciando motor de IA...</div>
+    <div class="ui">
+        <input type="text" id="result" placeholder="Esperando número..." readonly>
+        <button id="copyBtn">COPIAR NÚMERO</button>
+        <div id="status">Cargando cámara y OCR...</div>
     </div>
+
+    <canvas id="canvas"></canvas>
 
     <script>
         const video = document.getElementById('video');
-        const debugCanvas = document.getElementById('debug-canvas');
-        const cardNumberInput = document.getElementById('card-number');
+        const canvas = document.getElementById('canvas');
+        const resultInput = document.getElementById('result');
         const status = document.getElementById('status');
+        const copyBtn = document.getElementById('copyBtn');
+
         let worker = null;
+        let isProcessing = false;
 
-        // 1. Inicializar Tesseract con configuración restrictiva
+        // 1. Inicializar Tesseract (Versión 5)
         async function initOCR() {
-            status.innerText = "Cargando motor OCR...";
-            worker = await Tesseract.createWorker();
-            await worker.loadLanguage('eng');
-            await worker.initialize('eng');
-            
-            // CONFIGURACIÓN CLAVE: Solo buscar números y modo "Single Line"
-            await worker.setParameters({
-                tessedit_char_whitelist: '0123456789 ',
-                tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE,
-            });
-            
-            status.innerText = "Listo. Apunte a la tarjeta";
-            startCamera();
+            try {
+                status.innerText = "Configurando motor de IA...";
+                worker = await Tesseract.createWorker('eng', 1, {
+                    logger: m => console.log(m.status)
+                });
+                
+                await worker.setParameters({
+                    tessedit_char_whitelist: '0123456789',
+                    tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE,
+                });
+
+                status.innerText = "Motor listo. Iniciando cámara...";
+                startCamera();
+            } catch (e) {
+                status.innerText = "Error OCR: " + e.message;
+            }
         }
 
+        // 2. Iniciar Cámara con máxima resolución posible
         async function startCamera() {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'environment', width: 1280, height: 720 }
-            });
-            video.srcObject = stream;
-            video.onloadedmetadata = () => {
-                requestAnimationFrame(processingLoop);
-            };
-        }
-
-        // 2. Ciclo de procesamiento de imagen
-        async function processingLoop() {
-            if (worker) {
-                await processFrame();
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        facingMode: 'environment',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                });
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    status.innerText = "Escaneando... Alinee los números";
+                    setInterval(captureFrame, 1000); // Intenta leer cada 1 segundo
+                };
+            } catch (e) {
+                status.innerText = "Error Cámara: " + e.message;
             }
-            setTimeout(processingLoop, 500); // Intenta cada 0.5 segundos para no saturar el CPU
         }
 
-        async function processFrame() {
-            const ctx = debugCanvas.getContext('2d', { willReadFrequently: true });
+        // 3. Capturar y procesar frame
+        async function captureFrame() {
+            if (isProcessing || !worker) return;
+            isProcessing = true;
+
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
             
-            // Definir área de recorte basada en el rectángulo guía (85% ancho, 25% alto)
-            const cropW = video.videoWidth * 0.85;
-            const cropH = video.videoHeight * 0.25;
-            const cropX = (video.videoWidth - cropW) / 2;
-            const cropY = (video.videoHeight - cropH) / 2;
+            // Ajustamos el canvas al tamaño real del video
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
 
-            debugCanvas.width = cropW;
-            debugCanvas.height = cropH;
+            // Definimos el área de recorte (donde está el cuadro verde)
+            const rw = canvas.width * 0.8;
+            const rh = canvas.height * 0.2;
+            const rx = (canvas.width - rw) / 2;
+            const ry = (canvas.height - rh) / 2;
 
-            // Dibujar solo el trozo de la tarjeta en el canvas
-            ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+            // Dibujamos solo esa parte en el canvas
+            ctx.drawImage(video, rx, ry, rw, rh, 0, 0, rw, rh);
 
-            // 3. Pre-procesamiento: Escala de grises y Umbral binario (Binarization)
-            let imageData = ctx.getImageData(0, 0, cropW, cropH);
-            let data = imageData.data;
+            // Aplicar contraste básico para mejorar lectura
+            let imgData = ctx.getImageData(0, 0, rw, rh);
+            let data = imgData.data;
             for (let i = 0; i < data.length; i += 4) {
-                let avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
-                // Si el pixel es gris claro, hacerlo blanco. Si es oscuro, negro.
-                let threshold = 120; 
-                let val = avg > threshold ? 255 : 0;
-                data[i] = data[i+1] = data[i+2] = val;
+                let brightness = (data[i] + data[i+1] + data[i+2]) / 3;
+                let v = (brightness > 125) ? 255 : 0; // Blanco y negro puro
+                data[i] = data[i+1] = data[i+2] = v;
             }
-            ctx.putImageData(imageData, 0, 0);
+            ctx.putImageData(imgData, 0, 0);
 
-            // 4. Reconocimiento del área limpia
-            const { data: { text } } = await worker.recognize(debugCanvas);
-            const cleanNumber = text.replace(/\D/g, '');
+            try {
+                // Realizar OCR solo sobre el recorte
+                const { data: { text } } = await worker.recognize(canvas);
+                const digits = text.replace(/\D/g, '');
 
-            if (cleanNumber.length >= 15 && cleanNumber.length <= 16) {
-                if (validateLuhn(cleanNumber)) {
-                    cardNumberInput.value = formatCard(cleanNumber);
-                    status.innerText = "¡Tarjeta válida detectada!";
-                    if(navigator.vibrate) navigator.vibrate(100);
-                } else {
-                    status.innerText = "Leyendo... (Error de validación)";
+                if (digits.length >= 15 && digits.length <= 16) {
+                    if (luhnCheck(digits)) {
+                        resultInput.value = digits;
+                        status.innerText = "¡Tarjeta detectada!";
+                        if (navigator.vibrate) navigator.vibrate(100);
+                    }
                 }
+            } catch (e) {
+                console.error(e);
             }
+
+            isProcessing = false;
         }
 
-        // 5. Algoritmo de Luhn para asegurar que el número es real
-        function validateLuhn(number) {
+        // 4. Validación Matemática (Luhn)
+        function luhnCheck(val) {
             let sum = 0;
-            let shouldDouble = false;
-            for (let i = number.length - 1; i >= 0; i--) {
-                let digit = parseInt(number.charAt(i));
-                if (shouldDouble) {
-                    if ((digit *= 2) > 9) digit -= 9;
+            for (let i = 0; i < val.length; i++) {
+                let intVal = parseInt(val.substr(i, 1));
+                if (i % 2 == val.length % 2) {
+                    intVal *= 2;
+                    if (intVal > 9) intVal = (intVal % 10) + 1;
                 }
-                sum += digit;
-                shouldDouble = !shouldDouble;
+                sum += intVal;
             }
-            return (sum % 10) === 0;
+            return (sum % 10) == 0;
         }
 
-        function formatCard(num) {
-            return num.match(/.{1,4}/g).join(' ');
-        }
-
-        function copyToClipboard() {
-            if (cardNumberInput.value) {
-                navigator.clipboard.writeText(cardNumberInput.value.replace(/\s/g, ''));
-                alert("Número copiado!");
+        // 5. Botón Copiar
+        copyBtn.onclick = () => {
+            if (resultInput.value) {
+                navigator.clipboard.writeText(resultInput.value);
+                alert("Copiado: " + resultInput.value);
             }
-        }
+        };
 
+        // Iniciar todo
         initOCR();
     </script>
 </body>
