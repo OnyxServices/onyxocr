@@ -1,177 +1,115 @@
 <!DOCTYPE html>
-<html lang="es">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Lector de Tarjetas Pro</title>
-    <!-- Usamos la versión 5 de Tesseract -->
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <style>
-        body { font-family: sans-serif; background: #121212; color: white; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 20px; touch-action: manipulation; }
-        
-        #container { position: relative; width: 100%; max-width: 400px; aspect-ratio: 1.58 / 1; background: #000; border-radius: 15px; overflow: hidden; border: 2px solid #333; }
-        video { width: 100%; height: 100%; object-fit: cover; }
-        
-        /* Guía de enfoque */
-        #guide {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            width: 80%; height: 20%; border: 2px solid #00ff88; border-radius: 5px;
-            box-shadow: 0 0 0 1000px rgba(0,0,0,0.5); z-index: 10;
-        }
-
-        .ui { width: 100%; max-width: 400px; margin-top: 20px; }
-        input { 
-            width: 100%; padding: 15px; font-size: 1.4rem; background: #222; border: 1px solid #444; 
-            color: #00ff88; border-radius: 10px; text-align: center; margin-bottom: 10px; box-sizing: border-box;
-        }
-        button { 
-            width: 100%; padding: 15px; background: #00ff88; color: black; font-weight: bold; 
-            border: none; border-radius: 10px; cursor: pointer; font-size: 1rem;
-        }
-        #status { font-size: 0.8rem; color: #888; margin-top: 10px; text-align: center; }
-        canvas { display: none; } /* Canvas oculto para procesar */
-    </style>
+  <meta charset="UTF-8">
+  <title>Editor La Liga</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body { font-family: Arial; padding: 20px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px;}
+    th, td { border: 1px solid #ccc; padding: 6px; text-align: center;}
+    input { width: 60px; text-align: center;}
+    .status { margin-top: 10px; font-weight: bold;}
+  </style>
 </head>
 <body>
 
-    <h3>Escanear Tarjeta</h3>
-    
-    <div id="container">
-        <video id="video" autoplay playsinline muted></video>
-        <div id="guide"></div>
-    </div>
+<h2>Gestión La Liga</h2>
 
-    <div class="ui">
-        <input type="text" id="result" placeholder="Esperando número..." readonly>
-        <button id="copyBtn">COPIAR NÚMERO</button>
-        <div id="status">Cargando cámara y OCR...</div>
-    </div>
+<label>Filtrar por Jornada:</label>
+<input type="number" id="jornadaInput">
+<button onclick="cargarDatos()">Cargar</button>
 
-    <canvas id="canvas"></canvas>
+<div class="status" id="status"></div>
 
-    <script>
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const resultInput = document.getElementById('result');
-        const status = document.getElementById('status');
-        const copyBtn = document.getElementById('copyBtn');
+<table id="tabla">
+  <thead>
+    <tr>
+      <th>Local</th>
+      <th>Visitante</th>
+      <th>GL</th>
+      <th>GV</th>
+      <th>Pos L</th>
+      <th>Pos V</th>
+      <th>Rem L</th>
+      <th>Rem V</th>
+      <th>Pases L</th>
+      <th>Pases V</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
 
-        let worker = null;
-        let isProcessing = false;
+<script>
+const SUPABASE_URL = "https://fkbosmuymcluedxcgwzs.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrYm9zbXV5bWNsdWVkeGNnd3pzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNjAyNjAsImV4cCI6MjA4NzczNjI2MH0.Q8Aw7GkFjti1OU9gaawAPuRITy06nEusveci9nRPG6Y";
 
-        // 1. Inicializar Tesseract (Versión 5)
-        async function initOCR() {
-            try {
-                status.innerText = "Configurando motor de IA...";
-                worker = await Tesseract.createWorker('eng', 1, {
-                    logger: m => console.log(m.status)
-                });
-                
-                await worker.setParameters({
-                    tessedit_char_whitelist: '0123456789',
-                    tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE,
-                });
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-                status.innerText = "Motor listo. Iniciando cámara...";
-                startCamera();
-            } catch (e) {
-                status.innerText = "Error OCR: " + e.message;
-            }
-        }
+let cambiosPendientes = {};
 
-        // 2. Iniciar Cámara con máxima resolución posible
-        async function startCamera() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { 
-                        facingMode: 'environment',
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    }
-                });
-                video.srcObject = stream;
-                video.onloadedmetadata = () => {
-                    status.innerText = "Escaneando... Alinee los números";
-                    setInterval(captureFrame, 1000); // Intenta leer cada 1 segundo
-                };
-            } catch (e) {
-                status.innerText = "Error Cámara: " + e.message;
-            }
-        }
+async function cargarDatos() {
+  const jornada = document.getElementById("jornadaInput").value;
 
-        // 3. Capturar y procesar frame
-        async function captureFrame() {
-            if (isProcessing || !worker) return;
-            isProcessing = true;
+  const { data, error } = await supabase
+    .from("la_liga")
+    .select("*")
+    .eq("jornada", jornada)
+    .order("fecha_utc", { ascending: true });
 
-            const ctx = canvas.getContext('2d', { willReadFrequently: true });
-            
-            // Ajustamos el canvas al tamaño real del video
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
+  if (error) {
+    console.error(error);
+    return;
+  }
 
-            // Definimos el área de recorte (donde está el cuadro verde)
-            const rw = canvas.width * 0.8;
-            const rh = canvas.height * 0.2;
-            const rx = (canvas.width - rw) / 2;
-            const ry = (canvas.height - rh) / 2;
+  const tbody = document.querySelector("#tabla tbody");
+  tbody.innerHTML = "";
 
-            // Dibujamos solo esa parte en el canvas
-            ctx.drawImage(video, rx, ry, rw, rh, 0, 0, rw, rh);
+  data.forEach(partido => {
+    const row = document.createElement("tr");
 
-            // Aplicar contraste básico para mejorar lectura
-            let imgData = ctx.getImageData(0, 0, rw, rh);
-            let data = imgData.data;
-            for (let i = 0; i < data.length; i += 4) {
-                let brightness = (data[i] + data[i+1] + data[i+2]) / 3;
-                let v = (brightness > 125) ? 255 : 0; // Blanco y negro puro
-                data[i] = data[i+1] = data[i+2] = v;
-            }
-            ctx.putImageData(imgData, 0, 0);
+    row.innerHTML = `
+      <td>${partido.equipo_local}</td>
+      <td>${partido.equipo_visitante}</td>
+      <td><input value="${partido.goles_local ?? ''}" onchange="marcarCambio(${partido.id}, 'goles_local', this.value)"></td>
+      <td><input value="${partido.goles_visitante ?? ''}" onchange="marcarCambio(${partido.id}, 'goles_visitante', this.value)"></td>
+      <td><input value="${partido.posesion_local ?? ''}" onchange="marcarCambio(${partido.id}, 'posesion_local', this.value)"></td>
+      <td><input value="${partido.posesion_visitante ?? ''}" onchange="marcarCambio(${partido.id}, 'posesion_visitante', this.value)"></td>
+      <td><input value="${partido.remates_puerta_local ?? ''}" onchange="marcarCambio(${partido.id}, 'remates_puerta_local', this.value)"></td>
+      <td><input value="${partido.remates_puerta_visitante ?? ''}" onchange="marcarCambio(${partido.id}, 'remates_puerta_visitante', this.value)"></td>
+      <td><input value="${partido.pases_completados_local ?? ''}" onchange="marcarCambio(${partido.id}, 'pases_completados_local', this.value)"></td>
+      <td><input value="${partido.pases_completados_visitante ?? ''}" onchange="marcarCambio(${partido.id}, 'pases_completados_visitante', this.value)"></td>
+    `;
 
-            try {
-                // Realizar OCR solo sobre el recorte
-                const { data: { text } } = await worker.recognize(canvas);
-                const digits = text.replace(/\D/g, '');
+    tbody.appendChild(row);
+  });
+}
 
-                if (digits.length >= 15 && digits.length <= 16) {
-                    if (luhnCheck(digits)) {
-                        resultInput.value = digits;
-                        status.innerText = "¡Tarjeta detectada!";
-                        if (navigator.vibrate) navigator.vibrate(100);
-                    }
-                }
-            } catch (e) {
-                console.error(e);
-            }
+function marcarCambio(id, campo, valor) {
+  if (!cambiosPendientes[id]) {
+    cambiosPendientes[id] = {};
+  }
+  cambiosPendientes[id][campo] = valor === "" ? null : parseInt(valor);
+}
 
-            isProcessing = false;
-        }
+async function guardarCambios() {
+  if (Object.keys(cambiosPendientes).length === 0) return;
 
-        // 4. Validación Matemática (Luhn)
-        function luhnCheck(val) {
-            let sum = 0;
-            for (let i = 0; i < val.length; i++) {
-                let intVal = parseInt(val.substr(i, 1));
-                if (i % 2 == val.length % 2) {
-                    intVal *= 2;
-                    if (intVal > 9) intVal = (intVal % 10) + 1;
-                }
-                sum += intVal;
-            }
-            return (sum % 10) == 0;
-        }
+  document.getElementById("status").innerText = "Guardando...";
 
-        // 5. Botón Copiar
-        copyBtn.onclick = () => {
-            if (resultInput.value) {
-                navigator.clipboard.writeText(resultInput.value);
-                alert("Copiado: " + resultInput.value);
-            }
-        };
+  for (const id in cambiosPendientes) {
+    await supabase
+      .from("la_liga")
+      .update(cambiosPendientes[id])
+      .eq("id", id);
+  }
 
-        // Iniciar todo
-        initOCR();
-    </script>
+  cambiosPendientes = {};
+  document.getElementById("status").innerText = "Guardado automático ✔";
+}
+
+setInterval(guardarCambios, 10000);
+</script>
+
 </body>
 </html>
