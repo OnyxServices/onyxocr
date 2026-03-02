@@ -1,57 +1,129 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
-  <title>Editor La Liga</title>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <style>
-    body { font-family: Arial; padding: 20px; }
-    table { border-collapse: collapse; width: 100%; margin-top: 20px;}
-    th, td { border: 1px solid #ccc; padding: 6px; text-align: center;}
-    input { width: 60px; text-align: center;}
-    .status { margin-top: 10px; font-weight: bold;}
-  </style>
+<meta charset="UTF-8">
+<title>Editor La Liga</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style>
+body{
+  font-family: 'Segoe UI', sans-serif;
+  background:#f4f6f9;
+  padding:30px;
+}
+
+h2{
+  margin-bottom:15px;
+}
+
+label{
+  font-weight:bold;
+}
+
+input[type="number"]{
+  width:70px;
+  padding:4px;
+  text-align:center;
+}
+
+button{
+  padding:6px 12px;
+  background:#1e88e5;
+  border:none;
+  color:white;
+  cursor:pointer;
+  border-radius:4px;
+  margin-left:8px;
+}
+
+button:hover{
+  background:#1565c0;
+}
+
+table{
+  border-collapse:collapse;
+  width:100%;
+  margin-top:25px;
+  background:white;
+  box-shadow:0 4px 10px rgba(0,0,0,0.05);
+}
+
+th{
+  background:#263238;
+  color:white;
+  padding:8px;
+  font-size:13px;
+}
+
+td{
+  border:1px solid #ddd;
+  padding:6px;
+  text-align:center;
+}
+
+tr:nth-child(even){
+  background:#f9fbfc;
+}
+
+.status{
+  margin-top:15px;
+  font-weight:bold;
+  color:#2e7d32;
+}
+</style>
 </head>
+
 <body>
 
-<h2>Gestión La Liga</h2>
+<h2>Gestión La Liga ⚽</h2>
 
 <label>Filtrar por Jornada:</label>
-<input type="number" id="jornadaInput">
+<input type="number" id="jornadaInput" min="1">
 <button onclick="cargarDatos()">Cargar</button>
 
 <div class="status" id="status"></div>
 
 <table id="tabla">
-  <thead>
-    <tr>
-      <th>Local</th>
-      <th>Visitante</th>
-      <th>GL</th>
-      <th>GV</th>
-      <th>Pos L</th>
-      <th>Pos V</th>
-      <th>Rem L</th>
-      <th>Rem V</th>
-      <th>Pases L</th>
-      <th>Pases V</th>
-    </tr>
-  </thead>
-  <tbody></tbody>
+<thead>
+<tr>
+  <th>Local</th>
+  <th>Visitante</th>
+  <th>GL</th>
+  <th>GV</th>
+  <th>Pos L</th>
+  <th>Pos V</th>
+  <th>Rem L</th>
+  <th>Rem V</th>
+  <th>Pases L</th>
+  <th>Pases V</th>
+</tr>
+</thead>
+<tbody></tbody>
 </table>
 
 <script>
-const SUPABASE_URL = "https://fkbosmuymcluedxcgwzs.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrYm9zbXV5bWNsdWVkeGNnd3pzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNjAyNjAsImV4cCI6MjA4NzczNjI2MH0.Q8Aw7GkFjti1OU9gaawAPuRITy06nEusveci9nRPG6Y";
 
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+// 🔹 Crear cliente correctamente sin colisión global
+const { createClient } = window.supabase;
+
+const supabaseClient = createClient(
+  "https://fkbosmuymcluedxcgwzs.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrYm9zbXV5bWNsdWVkeGNnd3pzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNjAyNjAsImV4cCI6MjA4NzczNjI2MH0.Q8Aw7GkFjti1OU9gaawAPuRITy06nEusveci9nRPG6Y"
+);
 
 let cambiosPendientes = {};
+let guardando = false;
 
 async function cargarDatos() {
   const jornada = document.getElementById("jornadaInput").value;
 
-  const { data, error } = await supabase
+  if(!jornada){
+    alert("Introduce una jornada válida");
+    return;
+  }
+
+  const { data, error } = await supabaseClient
     .from("la_liga")
     .select("*")
     .eq("jornada", jornada)
@@ -59,6 +131,7 @@ async function cargarDatos() {
 
   if (error) {
     console.error(error);
+    alert("Error cargando datos");
     return;
   }
 
@@ -71,44 +144,58 @@ async function cargarDatos() {
     row.innerHTML = `
       <td>${partido.equipo_local}</td>
       <td>${partido.equipo_visitante}</td>
-      <td><input value="${partido.goles_local ?? ''}" onchange="marcarCambio(${partido.id}, 'goles_local', this.value)"></td>
-      <td><input value="${partido.goles_visitante ?? ''}" onchange="marcarCambio(${partido.id}, 'goles_visitante', this.value)"></td>
-      <td><input value="${partido.posesion_local ?? ''}" onchange="marcarCambio(${partido.id}, 'posesion_local', this.value)"></td>
-      <td><input value="${partido.posesion_visitante ?? ''}" onchange="marcarCambio(${partido.id}, 'posesion_visitante', this.value)"></td>
-      <td><input value="${partido.remates_puerta_local ?? ''}" onchange="marcarCambio(${partido.id}, 'remates_puerta_local', this.value)"></td>
-      <td><input value="${partido.remates_puerta_visitante ?? ''}" onchange="marcarCambio(${partido.id}, 'remates_puerta_visitante', this.value)"></td>
-      <td><input value="${partido.pases_completados_local ?? ''}" onchange="marcarCambio(${partido.id}, 'pases_completados_local', this.value)"></td>
-      <td><input value="${partido.pases_completados_visitante ?? ''}" onchange="marcarCambio(${partido.id}, 'pases_completados_visitante', this.value)"></td>
+      <td><input type="number" value="${partido.goles_local ?? ''}" onchange="marcarCambio(${partido.id}, 'goles_local', this.value)"></td>
+      <td><input type="number" value="${partido.goles_visitante ?? ''}" onchange="marcarCambio(${partido.id}, 'goles_visitante', this.value)"></td>
+      <td><input type="number" value="${partido.posesion_local ?? ''}" onchange="marcarCambio(${partido.id}, 'posesion_local', this.value)"></td>
+      <td><input type="number" value="${partido.posesion_visitante ?? ''}" onchange="marcarCambio(${partido.id}, 'posesion_visitante', this.value)"></td>
+      <td><input type="number" value="${partido.remates_puerta_local ?? ''}" onchange="marcarCambio(${partido.id}, 'remates_puerta_local', this.value)"></td>
+      <td><input type="number" value="${partido.remates_puerta_visitante ?? ''}" onchange="marcarCambio(${partido.id}, 'remates_puerta_visitante', this.value)"></td>
+      <td><input type="number" value="${partido.pases_completados_local ?? ''}" onchange="marcarCambio(${partido.id}, 'pases_completados_local', this.value)"></td>
+      <td><input type="number" value="${partido.pases_completados_visitante ?? ''}" onchange="marcarCambio(${partido.id}, 'pases_completados_visitante', this.value)"></td>
     `;
 
     tbody.appendChild(row);
   });
+
+  document.getElementById("status").innerText = "Datos cargados ✔";
 }
 
 function marcarCambio(id, campo, valor) {
   if (!cambiosPendientes[id]) {
     cambiosPendientes[id] = {};
   }
+
   cambiosPendientes[id][campo] = valor === "" ? null : parseInt(valor);
 }
 
 async function guardarCambios() {
+
+  if (guardando) return;
   if (Object.keys(cambiosPendientes).length === 0) return;
 
+  guardando = true;
   document.getElementById("status").innerText = "Guardando...";
 
   for (const id in cambiosPendientes) {
-    await supabase
+    const { error } = await supabaseClient
       .from("la_liga")
       .update(cambiosPendientes[id])
       .eq("id", id);
+
+    if(error){
+      console.error(error);
+    }
   }
 
   cambiosPendientes = {};
+  guardando = false;
+
   document.getElementById("status").innerText = "Guardado automático ✔";
 }
 
+// Autosave cada 10 segundos
 setInterval(guardarCambios, 10000);
+
 </script>
 
 </body>
